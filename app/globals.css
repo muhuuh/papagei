@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: #f3f4f6;
+  background-color: #0b0b10;
+  background-image:
+    radial-gradient(900px 500px at 10% 15%, rgba(125, 211, 252, 0.16), transparent 60%),
+    radial-gradient(900px 500px at 90% 10%, rgba(248, 113, 113, 0.14), transparent 60%),
+    radial-gradient(700px 400px at 50% 90%, rgba(129, 140, 248, 0.12), transparent 60%);
+}
+
+::selection {
+  background: rgba(125, 211, 252, 0.35);
+  color: #0b0b10;
+}

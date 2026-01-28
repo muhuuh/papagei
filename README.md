@@ -1,58 +1,83 @@
-# Papagei STT (Windows-friendly)
+# Papagei (local speech-to-text UI)
 
-This repo contains a minimal Python script that records audio from your laptop microphone and produces a speech-to-text (STT) transcript using NVIDIA NeMo's Parakeet model. The script is intentionally simple and is designed to work on Windows without CUDA or other complex setup.
+A small local app that wraps your NeMo/Parakeet transcription workflow with a start/stop UI. The backend stays running and keeps the model warm, so you can record multiple sessions without restarting the script.
 
-## What this script does
+- Frontend: Next.js (App Router) + Tailwind
+- Backend: FastAPI (records audio, runs NeMo transcription)
 
-- Records from the default microphone (press Enter to start and stop).
-- Converts audio to 16 kHz mono float32.
-- Runs transcription with NeMo's `nvidia/parakeet-tdt-0.6b-v3` model.
+## Why this app exists
 
-## Why this version is Windows-friendly
+The original script ended after a single recording. This app keeps the backend process alive and exposes Start/Stop endpoints, so the UI can trigger many recordings in one session. It also offers a practical workaround for Windows by sending NumPy audio arrays directly to NeMo (bypassing the Lhotse file-path dataloader, which can fail on some Windows + PyTorch combinations).
 
-NeMo's default file-path transcription path uses Lhotse dataloaders. On some Windows + PyTorch combinations this can fail with a `TypeError: object.__init__() takes exactly one argument` when Lhotse builds samplers. The workaround in this script avoids that codepath by passing a NumPy audio array directly to `asr_model.transcribe(...)`.
+## Setup
 
-This keeps the setup lightweight and works on CPU-only machines.
+### 1) Backend (FastAPI)
 
-## Setup (Windows)
-
-Create a virtual environment and install dependencies:
+Open PowerShell in the project root:
 
 ```powershell
+# optional but recommended
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-python -m pip install "nemo_toolkit[asr]" sounddevice scipy numpy
+
+# install backend deps
+pip install -r papagei_backend\requirements.txt
 ```
 
-Optional (for hotkeys):
+Run the backend:
 
 ```powershell
-python -m pip install keyboard
+npm run dev:backend
 ```
 
-Notes:
-- CUDA is optional. The script runs on CPU.
-- ffmpeg is only needed if you plan to load non-WAV audio.
+Health check: http://127.0.0.1:8000/health
+
+### 2) Frontend (Next.js)
+
+In another terminal:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open: http://localhost:3000
+
+### 3) Run both (recommended)
+
+```powershell
+npm run dev:all
+```
+
+If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running on `http://127.0.0.1:8000`.
 
 ## Usage
 
+- Click Start to begin recording.
+- Click Stop to transcribe and see the text in the UI.
+- Enable Auto copy to copy to clipboard after Stop.
+- Enable Auto insert to inject text into the currently focused input inside the app.
+
+Browser security prevents automatic typing into other desktop apps. The Auto copy toggle is the simplest way to paste into any other window.
+
+## Model configuration
+
+Defaults to:
+
+- MODEL_NAME = nvidia/parakeet-tdt-0.6b-v3
+
+Optional environment variables:
+
 ```powershell
-python stt_script.py
+$env:PAPAGEI_MODEL_NAME="nvidia/parakeet-tdt-0.6b-v3"
+$env:PAPAGEI_LOCAL_NEMO_PATH="C:\path\to\parakeet-tdt-0.6b-v3.nemo"
+$env:PAPAGEI_DEVICE="Microphone (Realtek...)"
 ```
 
-By default you will press Enter to start recording and Enter again to stop. The transcript is printed to the console.
+If PAPAGEI_LOCAL_NEMO_PATH is set, the backend loads from disk.
 
-If you want to test with a WAV file instead of the microphone:
+## Repo contents
 
-1. Set `USE_SAMPLE_FILE = True` in `stt_script.py`.
-2. Set `SAMPLE_AUDIO_FILE` to your WAV path.
-
-## Files created during run
-
-- `temp_audio.wav` is created when recording from mic and is deleted at the end of a run.
-
-## Troubleshooting
-
-- If you see warnings about CUDA, you can ignore them when running on CPU.
-- If you need file-path transcription, use a Linux/WSL2 setup or match the NeMo+PyTorch versions recommended in the official docs.
+- legacy/stt_script.py - original standalone script (kept for reference)
+- papagei_backend/server.py - FastAPI backend + recorder + NeMo transcription
+- app/page.tsx - Next.js UI (start/stop, transcript, history)

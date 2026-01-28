@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+numpy>=1.24
+scipy>=1.10
+sounddevice>=0.4.6
+torch>=2.1
+
+# NeMo ASR (you already have this working in your existing env)
+# If you want to install from pip:
+# nemo_toolkit[asr]

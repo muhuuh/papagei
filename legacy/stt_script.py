@@ -39,7 +39,7 @@ except Exception as e:
     exit(1)
 
 SAMPLE_RATE = 16000
-AUDIO_FILE = 'temp_audio.wav' if not USE_SAMPLE_FILE else SAMPLE_AUDIO_FILE
+AUDIO_FILE = "temp_audio.wav" if not USE_SAMPLE_FILE else SAMPLE_AUDIO_FILE
 
 def _to_mono_float32(samples: np.ndarray) -> np.ndarray:
     if samples.ndim > 1:
@@ -70,19 +70,19 @@ def record_audio():
     else:
         print("Press Enter to start, Enter again to stop...")
     recording = []
-    
+
     def callback(indata, frames, time, status):
         if status:
             print(f"Stream status: {status}")
         recording.append(indata.copy())
-    
+
     if USE_KEYBOARD_HOTKEYS and HAS_KEYBOARD:
         while not keyboard.is_pressed('s'):
             time.sleep(0.01)
     else:
         input()
     print("Recording...")
-    
+
     try:
         stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", callback=callback)
         with stream:
@@ -95,7 +95,7 @@ def record_audio():
     except Exception as e:
         print(f"Record error: {e}")
         return None
-    
+
     if recording:
         recording = np.concatenate(recording, axis=0).squeeze()
         audio = _to_mono_float32(recording)
@@ -111,7 +111,7 @@ if audio_np is not None:
         first = output[0]
         text = first.text if hasattr(first, "text") else first
         print("Raw Transcription:", text)
-        
+
         # Chain example (uncomment after pip install ollama; run Ollama server)
         # corrected = ollama.generate(model='your-finetuned-german', prompt=f"Correct this: {text}")['response']
         # print("Corrected:", corrected)
