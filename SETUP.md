@@ -12,3 +12,5 @@ If you get CORS errors, ensure:
 - Backend:  http://127.0.0.1:8000
 
 If the UI says "Backend: OFFLINE", run `npm run dev:backend` in a separate terminal (or `npm run dev:all`).
+
+Note: the backend runs without reload to avoid model reload loops on Windows. Use `npm run dev:backend:reload` only if needed.

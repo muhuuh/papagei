@@ -1,7 +1,10 @@
+import json
 import os
 import threading
 import time
-from typing import Optional, Dict, Any
+import uuid
+from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 import numpy as np
 import sounddevice as sd
@@ -20,20 +23,134 @@ MODEL_NAME = os.getenv("PAPAGEI_MODEL_NAME", "nvidia/parakeet-tdt-0.6b-v3")
 LOCAL_NEMO_PATH = os.getenv("PAPAGEI_LOCAL_NEMO_PATH")  # e.g. C:\Downloads\parakeet-tdt-0.6b-v3.nemo
 DEVICE_NAME = os.getenv("PAPAGEI_DEVICE")  # optional, e.g. "Microphone (Realtek...)" or an integer device id
 
-# ---- Model loading (once, at startup) ----
-def load_model():
-    if LOCAL_NEMO_PATH:
-        model = nemo_asr.models.ASRModel.restore_from(LOCAL_NEMO_PATH)
-    else:
-        model = nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
+BASE_DIR = Path(__file__).resolve().parent.parent
+HISTORY_DIR = BASE_DIR / "history"
+HISTORY_FILE = HISTORY_DIR / "history.json"
+_history_lock = threading.Lock()
 
+_model_lock = threading.Lock()
+_PHASES = [
+    "starting",
+    "restoring_model",
+    "preparing_device",
+    "ready",
+]
+
+_model_state: Dict[str, Any] = {
+    "state": "starting",
+    "phase": "starting",
+    "phase_index": 0,
+    "message": "Starting backend...",
+    "started_at": time.time(),
+    "ready_at": None,
+    "error": None,
+    "device": None,
+}
+asr_model = None
+
+
+def _set_model_state(
+    state: str,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    device: Optional[str] = None,
+    phase: Optional[str] = None,
+):
+    with _model_lock:
+        _model_state["state"] = state
+        if message is not None:
+            _model_state["message"] = message
+        if error is not None:
+            _model_state["error"] = error
+        if device is not None:
+            _model_state["device"] = device
+        if phase is not None:
+            _model_state["phase"] = phase
+            try:
+                _model_state["phase_index"] = _PHASES.index(phase)
+            except ValueError:
+                _model_state["phase_index"] = 0
+        if state == "ready":
+            _model_state["ready_at"] = time.time()
+
+
+# ---- Model loading (background) ----
+def _restore_model():
+    if LOCAL_NEMO_PATH:
+        return nemo_asr.models.ASRModel.restore_from(LOCAL_NEMO_PATH)
+    return nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
+
+
+def _move_model_to_device(model):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
-    print(f"[papagei] Loaded model on {device}: {LOCAL_NEMO_PATH or MODEL_NAME}")
-    return model
+    return model, device
 
 
-asr_model = load_model()
+def _load_model_worker():
+    global asr_model
+    _set_model_state(
+        "loading",
+        "Starting model load...",
+        phase="starting",
+    )
+    try:
+        _set_model_state(
+            "loading",
+            "Restoring model weights (download if needed)...",
+            phase="restoring_model",
+        )
+        model = _restore_model()
+
+        _set_model_state(
+            "loading",
+            "Preparing model on device...",
+            phase="preparing_device",
+        )
+        model, device = _move_model_to_device(model)
+        asr_model = model
+        print(f"[papagei] Loaded model on {device}: {LOCAL_NEMO_PATH or MODEL_NAME}")
+        _set_model_state("ready", f"Model loaded on {device}", device=device, phase="ready")
+    except Exception as e:
+        _set_model_state("error", "Model load failed", error=str(e))
+
+
+def _load_history() -> List[Dict[str, Any]]:
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        with HISTORY_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            return []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _write_history(items: List[Dict[str, Any]]) -> None:
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = HISTORY_FILE.with_suffix(".json.tmp")
+    with temp_path.open("w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+    temp_path.replace(HISTORY_FILE)
+
+
+def _append_history(item: Dict[str, Any]) -> None:
+    with _history_lock:
+        items = _load_history()
+        items.append(item)
+        _write_history(items)
+
+
+def _delete_history(item_id: str) -> bool:
+    with _history_lock:
+        items = _load_history()
+        next_items = [item for item in items if item.get("id") != item_id]
+        if len(next_items) == len(items):
+            return False
+        _write_history(next_items)
+    return True
 
 
 # ---- Recorder that can start/stop repeatedly without quitting the process ----
@@ -122,20 +239,63 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def startup_event():
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    thread = threading.Thread(target=_load_model_worker, daemon=True)
+    thread.start()
+
+
 @app.get("/health")
 def health():
+    with _model_lock:
+        state = _model_state["state"]
+        phase = _model_state["phase"]
+        phase_index = _model_state["phase_index"]
+        message = _model_state["message"]
+        error = _model_state["error"]
+        device = _model_state["device"]
+        started_at = _model_state["started_at"]
+        ready_at = _model_state["ready_at"]
+
+    is_ready = asr_model is not None and state == "ready"
+    if not is_ready and state != "error":
+        # Be conservative: if the model isn't set, report loading
+        state = "loading"
+        phase = "restoring_model" if phase in _PHASES else "starting"
+        try:
+            phase_index = _PHASES.index(phase)
+        except ValueError:
+            phase_index = 0
+        message = message or "Model is still loading..."
+
+    now = time.time()
     return {
         "ok": True,
+        "ready": is_ready,
+        "status": state,
+        "phase": phase,
+        "phase_index": phase_index,
+        "phases": _PHASES,
+        "progress": phase_index / max(len(_PHASES) - 1, 1),
+        "message": message,
+        "error": error,
         "recording": recorder.recording,
         "model": LOCAL_NEMO_PATH or MODEL_NAME,
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "device": device,
         "sample_rate": SAMPLE_RATE,
+        "started_at": started_at,
+        "ready_at": ready_at,
+        "uptime_seconds": max(0.0, now - started_at) if started_at else None,
+        "pid": os.getpid(),
     }
 
 
 @app.post("/start")
 def start():
     try:
+        if asr_model is None:
+            raise HTTPException(status_code=503, detail="Model is still loading. Please wait.")
         return recorder.start()
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -152,13 +312,65 @@ def stop():
         if audio.size == 0:
             return {"text": "", "seconds": secs}
 
+        if asr_model is None:
+            raise HTTPException(status_code=503, detail="Model is still loading. Please wait.")
+
         # NeMo can transcribe from a numpy array
         out = asr_model.transcribe([audio])
         first = out[0]
         text = first.text if hasattr(first, "text") else str(first)
 
-        return {"text": text, "seconds": secs}
+        item = {
+            "id": uuid.uuid4().hex,
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "seconds": secs,
+            "text": text,
+        }
+        _append_history(item)
+
+        return {"text": text, "seconds": secs, "item": item}
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stop/transcribe failed: {e}")
+
+
+@app.get("/history")
+def history(limit: int = 10, offset: int = 0):
+    limit = max(1, min(int(limit), 50))
+    offset = max(0, int(offset))
+
+    with _history_lock:
+        items = _load_history()
+
+    total = len(items)
+    end = max(total - offset, 0)
+    start = max(end - limit, 0)
+    slice_items = items[start:end]
+    slice_items.reverse()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": slice_items,
+    }
+
+
+@app.get("/history/all")
+def history_all():
+    with _history_lock:
+        items = _load_history()
+    items.reverse()
+    return {
+        "total": len(items),
+        "items": items,
+    }
+
+
+@app.delete("/history/{item_id}")
+def history_delete(item_id: str):
+    deleted = _delete_history(item_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="History item not found.")
+    return {"ok": True}

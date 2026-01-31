@@ -17,3 +17,6 @@ papagei_backend/__pycache__/
 # Local artifacts
 temp_audio.wav
 tmp_silence.wav
+
+# History data
+history/

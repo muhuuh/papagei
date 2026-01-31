@@ -30,6 +30,8 @@ Run the backend:
 npm run dev:backend
 ```
 
+Note: the backend intentionally runs **without** `--reload` to avoid model reload loops on Windows. If you really need reload, use `npm run dev:backend:reload` (slower and less stable).
+
 Health check: http://127.0.0.1:8000/health
 
 ### 2) Frontend (Next.js)
@@ -59,6 +61,10 @@ If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running o
 - Enable Auto insert to inject text into the currently focused input inside the app.
 
 Browser security prevents automatic typing into other desktop apps. The Auto copy toggle is the simplest way to paste into any other window.
+
+## History storage
+
+Transcripts are saved on disk in `history/history.json` by the backend. The UI loads the most recent items first and lets you fetch older entries.
 
 ## Model configuration
 
