@@ -10,7 +10,7 @@ type TranscriptItem = {
 };
 
 type Status = "idle" | "recording" | "transcribing" | "error";
-type BackendState = "offline" | "loading" | "ready" | "error";
+type BackendState = "offline" | "loading" | "ready";
 
 const BACKEND = process.env.NEXT_PUBLIC_PAPAGEI_BACKEND_URL ?? "http://127.0.0.1:8000";
 const HISTORY_PAGE = 5;
@@ -25,29 +25,27 @@ type ToggleProps = {
 function Toggle({ label, checked, onChange, hint }: ToggleProps) {
   return (
     <div className="relative group">
-      <label className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm cursor-pointer">
-        <div className="min-w-0">
-          <div className="font-medium text-slate-100">{label}</div>
-        </div>
+      <label className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5 text-[13px] cursor-pointer hover:bg-white/[0.06] transition-colors group/label">
+        <span className="font-medium text-slate-300 group-hover/label:text-slate-100 transition-colors">{label}</span>
         <button
           type="button"
           onClick={() => onChange(!checked)}
-          className={`relative h-6 w-11 rounded-full border border-white/15 transition ${
-            checked ? "bg-cyan-400/80" : "bg-white/10"
+          className={`relative h-5 w-9 rounded-full transition-all duration-300 ${
+            checked ? "bg-cyan-500" : "bg-slate-700"
           }`}
           aria-pressed={checked}
         >
           <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${
-              checked ? "left-5" : "left-0.5"
+            className={`absolute top-1 h-3 w-3 rounded-full bg-white shadow-sm transition-all duration-300 ${
+              checked ? "left-5" : "left-1"
             }`}
           />
         </button>
       </label>
       {hint ? (
-        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-slate-800 text-slate-200 text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-900 border border-white/10 text-slate-200 text-[11px] rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap z-10 shadow-xl translate-y-1 group-hover:translate-y-0">
           {hint}
-          <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
         </div>
       ) : null}
     </div>
@@ -72,13 +70,6 @@ export default function Home() {
   const [historyFilterTo, setHistoryFilterTo] = useState("");
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [backendState, setBackendState] = useState<BackendState>("offline");
-  const [backendMessage, setBackendMessage] = useState<string>("");
-  const [backendPhases, setBackendPhases] = useState<string[]>([]);
-  const [backendPhaseIndex, setBackendPhaseIndex] = useState<number>(0);
-  const [backendStartedAt, setBackendStartedAt] = useState<number | null>(null);
-  const [backendUptime, setBackendUptime] = useState<number | null>(null);
-  const [backendPid, setBackendPid] = useState<number | null>(null);
-  const [backendProgress, setBackendProgress] = useState<number>(0);
   const [autoCopy, setAutoCopy] = useState(true);
   const [appendMode, setAppendMode] = useState(true);
 
@@ -88,12 +79,27 @@ export default function Home() {
   const isRecording = status === "recording";
   const isBusy = status === "recording" || status === "transcribing";
 
-  function formatDate(value: string) {
+  function formatTimeAgo(value: string) {
     try {
-      return new Date(value).toLocaleString();
+      const date = new Date(value);
+      const now = new Date();
+      const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+      if (diffInSeconds < 60) return "just now";
+      if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+      if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+      
+      const diffInDays = Math.floor(diffInSeconds / 86400);
+      if (diffInDays < 7) return `${diffInDays}d ago`;
+      
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     } catch {
       return value;
     }
+  }
+
+  function formatDate(value: string) {
+    return formatTimeAgo(value);
   }
 
   function truncateText(text: string, maxWords = 10) {
@@ -107,41 +113,17 @@ export default function Home() {
   async function checkHealth() {
     try {
       const r = await fetch(`${BACKEND}/health`, { cache: "no-store" });
-      if (!r.ok) {
-        setBackendOk(false);
-        setBackendState("offline");
-        setBackendMessage("Backend not reachable");
-        return { ready: false, status: "offline", message: "Backend not reachable" };
-      }
+      if (!r.ok) throw new Error("Backend not reachable");
       const data = await r.json();
-      const status = (data.status as BackendState | undefined) ?? (data.ready ? "ready" : "loading");
-      const normalized: BackendState =
-        status === "error" ? "error" : status === "ready" ? "ready" : "loading";
-      const message =
-        (data.message as string | undefined) ??
-        (data.error as string | undefined) ??
-        "";
-      const phases = (data.phases as string[] | undefined) ?? [];
-      const phaseIndex = Number.isFinite(data.phase_index) ? Number(data.phase_index) : 0;
-      const startedAt = typeof data.started_at === "number" ? data.started_at : null;
-      const uptime = typeof data.uptime_seconds === "number" ? data.uptime_seconds : null;
-      const pid = typeof data.pid === "number" ? data.pid : null;
-      const progress = typeof data.progress === "number" ? data.progress : 0;
+      const ready = Boolean(data.ready);
       setBackendOk(true);
-      setBackendState(normalized);
-      setBackendMessage(message);
-      setBackendPhases(phases);
-      setBackendPhaseIndex(phaseIndex);
-      setBackendStartedAt(startedAt);
-      setBackendUptime(uptime);
-      setBackendPid(pid);
-      setBackendProgress(progress);
-      return { ready: Boolean(data.ready), status: normalized, message };
+      setBackendState(ready ? "ready" : "loading");
+      // message no longer used in UI
+      return { ready, status: ready ? "ready" : "loading", message: ready ? "Ready" : "Loading model..." };
     } catch {
       setBackendOk(false);
       setBackendState("offline");
-      setBackendMessage("Backend not reachable");
-      return { ready: false, status: "offline", message: "Backend not reachable" };
+      return { ready: false, status: "offline", message: "Backend offline" };
     }
   }
 
@@ -163,7 +145,7 @@ export default function Home() {
 
   useEffect(() => {
     if (backendState === "ready") return;
-    const t = setInterval(checkHealth, 3000);
+    const t = setInterval(checkHealth, 2000);
     return () => clearInterval(t);
   }, [backendState]);
 
@@ -300,9 +282,6 @@ export default function Home() {
     return false;
   }
 
-  function formatPhaseLabel(phase: string) {
-    return phase.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  }
 
   async function start() {
     setError(null);
@@ -421,18 +400,11 @@ export default function Home() {
   const statusLabel = useMemo(() => {
     if (backendState === "offline") return "Backend offline";
     if (backendState === "loading") return "Loading model...";
-    if (backendState === "error") return "Backend error";
     if (status === "idle") return "Ready";
     if (status === "recording") return "Recording...";
     if (status === "transcribing") return "Transcribing...";
     return "Error";
   }, [status, backendState]);
-
-  const backendElapsed = useMemo(() => {
-    if (!backendStartedAt) return null;
-    const seconds = Math.max(0, Math.round(Date.now() / 1000 - backendStartedAt));
-    return seconds;
-  }, [backendStartedAt, backendState]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -469,170 +441,102 @@ export default function Home() {
               transcript you can copy or drop directly into a focused field.
             </p>
           </div>
-          <div className="flex items-center gap-3 text-sm text-slate-300">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{statusLabel}</span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-              Backend:{" "}
-              {backendState === "ready"
-                ? "READY"
-                : backendState === "loading"
-                ? "LOADING"
-                : backendState === "error"
-                ? "ERROR"
-                : "OFFLINE"}
-            </span>
-          </div>
         </header>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
-          <section className="space-y-6">
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr,0.8fr] items-stretch">
+          <section className="flex flex-col gap-6">
             {backendState !== "ready" ? (
-              <div
-                className={`rounded-2xl border p-4 text-sm ${
-                  backendState === "loading"
-                    ? "border-sky-400/30 bg-sky-400/10 text-sky-100"
-                    : backendState === "error"
-                    ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                    : "border-amber-400/30 bg-amber-400/10 text-amber-100"
-                }`}
-              >
-                {backendState === "loading" ? (
-                  <>
-                    <div className="font-semibold">Backend is starting</div>
-                    <p className="mt-1 text-xs text-sky-100/80">
-                      Backend is reachable. Loading the local speech model can take ~30-90 seconds on CPU.
-                    </p>
-                    {backendMessage ? (
-                      <div className="mt-2 rounded-lg border border-sky-400/20 bg-black/40 px-3 py-2 text-xs text-sky-100/90">
-                        {backendMessage}
-                      </div>
-                    ) : null}
-                    {backendPhases.length > 0 ? (
-                      <div className="mt-3 grid gap-2 text-xs text-sky-100/80">
-                        {backendPhases.map((phase, idx) => (
-                          <div
-                            key={`${phase}-${idx}`}
-                            className={`flex items-center gap-2 ${
-                              idx < backendPhaseIndex
-                                ? "text-sky-100/90"
-                                : idx === backendPhaseIndex
-                                ? "text-sky-100"
-                                : "text-sky-100/50"
-                            }`}
-                          >
-                            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-400/30 text-[10px]">
-                              {idx < backendPhaseIndex ? "ok" : idx === backendPhaseIndex ? "..." : "-"}
-                            </span>
-                            <span>{formatPhaseLabel(phase)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="mt-3 h-2 w-full rounded-full bg-black/40">
-                      <div
-                        className="h-2 rounded-full bg-sky-400/70 transition-all"
-                        style={{ width: `${Math.round(backendProgress * 100)}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 text-[11px] text-sky-100/70">
-                      {backendElapsed !== null ? `Elapsed: ${backendElapsed}s` : "Elapsed: ..."}
-                      {backendPid ? ` · PID: ${backendPid}` : ""}
-                      {backendUptime !== null ? ` · Uptime: ${Math.round(backendUptime)}s` : ""}
-                    </div>
-                    <button
-                      className="mt-3 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-xs text-sky-100"
-                      onClick={() => checkHealth()}
-                    >
-                      Refresh status
-                    </button>
-                  </>
-                ) : backendState === "error" ? (
-                  <>
-                    <div className="font-semibold">Backend error</div>
-                    <p className="mt-1 text-xs text-rose-100/80">
-                      The backend reported a model load error. Check the backend console logs.
-                    </p>
-                    {backendMessage ? (
-                      <div className="mt-2 rounded-lg border border-rose-400/20 bg-black/40 px-3 py-2 text-xs text-rose-100/90">
-                        {backendMessage}
-                      </div>
-                    ) : null}
-                    <button
-                      className="mt-3 rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-1 text-xs text-rose-100"
-                      onClick={() => checkHealth()}
-                    >
-                      Retry
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <div className="font-semibold">Backend is offline</div>
-                    <p className="mt-1 text-xs text-amber-100/80">
-                      Start the backend in a separate terminal, then refresh this page.
-                    </p>
-                    <pre className="mt-3 rounded-lg border border-amber-400/20 bg-black/40 p-3 text-xs text-amber-100/90">
-                      npm run dev:backend
-                    </pre>
-                    <p className="mt-2 text-xs text-amber-100/70">
-                      Or run both together: <span className="font-semibold">npm run dev:all</span>
-                    </p>
-                    <button
-                      className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-100"
-                      onClick={() => checkHealth()}
-                    >
-                      Refresh status
-                    </button>
-                  </>
-                )}
+              <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                {backendState === "loading"
+                  ? "Backend is loading the model..."
+                  : "Backend is offline."}
               </div>
             ) : null}
             <div className="rounded-2xl border border-white/10 bg-panel/80 p-6 shadow-xl backdrop-blur">
-              <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="font-display text-lg text-white">Controls</h2>
+                <div className="flex items-center gap-3">
+                  <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                    isRecording ? "text-rose-400 border-rose-500/20 bg-rose-500/5" : 
+                    status === "transcribing" ? "text-amber-400 border-amber-500/20 bg-amber-500/5" : 
+                    "text-emerald-400 border-emerald-500/20 bg-emerald-500/5"
+                  }`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      isRecording ? "bg-rose-500 animate-pulse" : 
+                      status === "transcribing" ? "bg-amber-500 animate-bounce" : 
+                      "bg-emerald-500"
+                    }`} />
+                    {statusLabel}
+                  </span>
+                  <span className="text-[11px] font-medium text-slate-400 bg-white/5 border border-white/10 px-2 py-1 rounded-md">
+                    Space
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-5">
                 <button
-                  className={`rounded-xl px-6 py-3 text-sm font-semibold transition ${
+                  className={`w-full h-12 rounded-xl font-semibold transition-all duration-200 relative overflow-hidden group border ${
                     isRecording
-                      ? "bg-rose-500/90 text-white shadow-glow"
-                      : "bg-cyan-400/90 text-slate-900 shadow-glow"
+                      ? "bg-rose-500/10 border-rose-500/30 text-rose-100"
+                      : "bg-cyan-400 text-slate-950 border-cyan-400/50"
                   }`}
                   onClick={toggle}
                   disabled={status === "transcribing" || backendState !== "ready"}
                 >
-                  {isRecording ? "Stop" : "Start"}
+                  <div className="relative z-10 flex items-center justify-center gap-2.5">
+                    {isRecording ? (
+                      <>
+                        <div className="flex gap-1">
+                          <span className="w-1 h-3 bg-rose-200 animate-[pulse_1s_infinite_0ms]" />
+                          <span className="w-1 h-3 bg-rose-200 animate-[pulse_1s_infinite_200ms]" />
+                          <span className="w-1 h-3 bg-rose-200 animate-[pulse_1s_infinite_400ms]" />
+                        </div>
+                        Stop Recording
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                        </svg>
+                        Start Recording
+                      </>
+                    )}
+                  </div>
+                  <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
-                <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                  Shortcut: Space
-                </span>
-              </div>
 
-              <div className="mt-6 grid gap-3 md:grid-cols-2">
-                <Toggle
-                  label="Auto copy"
-                  checked={autoCopy}
-                  onChange={setAutoCopy}
-                  hint="Copies transcript to clipboard after Stop."
-                />
-                <Toggle
-                  label="Append mode"
-                  checked={appendMode}
-                  onChange={setAppendMode}
-                  hint="Adds text instead of replacing."
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <Toggle
+                    label="Auto copy"
+                    checked={autoCopy}
+                    onChange={setAutoCopy}
+                    hint="Copies transcript to clipboard after Stop."
+                  />
+                  <Toggle
+                    label="Append mode"
+                    checked={appendMode}
+                    onChange={setAppendMode}
+                    hint="Adds text instead of replacing."
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-panel/80 p-6 shadow-xl backdrop-blur">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-white/10 bg-panel/80 p-6 shadow-xl backdrop-blur flex flex-col flex-1">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-lg text-white">Transcript</h2>
-                <div className="ml-auto flex flex-wrap gap-2">
+                <div className="flex items-center gap-2">
                   <button
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200"
+                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-slate-200 hover:bg-white/10 transition"
                     onClick={copyToClipboard}
                     disabled={!transcript}
                   >
                     Copy
                   </button>
                   <button
-                    className="rounded-lg border border-white/10 bg-transparent px-3 py-1 text-xs text-slate-300"
+                    className="rounded-lg border border-white/10 bg-transparent px-3 py-1 text-[11px] font-medium text-slate-400 hover:text-slate-200 transition"
                     onClick={clear}
                     disabled={!transcript}
                   >
@@ -646,7 +550,7 @@ export default function Home() {
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 placeholder="Your transcript will appear here..."
-                className="mt-4 min-h-[220px] w-full resize-y rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-slate-100 outline-none focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20"
+                className="mt-4 flex-1 min-h-[220px] w-full resize-none rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-slate-100 outline-none focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20"
               />
 
               {error ? (
@@ -657,62 +561,78 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="space-y-6">
-            <div className="rounded-2xl border border-white/10 bg-panel/80 p-6 shadow-xl backdrop-blur">
-              <div className="flex items-center gap-2">
-                <h2 className="font-display text-lg text-white">History</h2>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-slate-400">
-                  Latest {Math.min(historyTotal, HISTORY_PAGE)}
-                </span>
-                <div className="ml-auto">
-                  <button
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200"
-                    onClick={() => {
-                      setHistoryModalOpen(true);
-                      loadAllHistory();
-                    }}
-                  >
-                    View all
-                  </button>
+          <aside className="flex flex-col">
+            <div className="rounded-2xl border border-white/10 bg-panel/80 p-6 shadow-xl backdrop-blur flex flex-col h-full">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-lg text-white">History</h2>
+                  <span className="text-[10px] font-medium text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+                    Latest {HISTORY_PAGE}
+                  </span>
                 </div>
+                <button
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-slate-200 hover:bg-white/10 transition"
+                  onClick={() => {
+                    setHistoryModalOpen(true);
+                    loadAllHistory();
+                  }}
+                >
+                  View all
+                </button>
               </div>
 
-              <div className="mt-4 space-y-2">
+              <div className="mt-4 space-y-3 flex-1 overflow-y-auto pr-1">
                 {summaryHistory.length === 0 ? (
                   <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-400">
                     No transcripts yet. Start a session to populate this list.
                   </div>
                 ) : (
                   summaryHistory.map((h) => (
-                    <div key={h.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>{formatDate(h.createdAt)}</span>
-                        <span>{Math.round(h.seconds)}s</span>
+                    <div key={h.id} className="group relative rounded-xl border border-white/10 bg-white/5 p-3 transition-colors hover:bg-white/[0.07]">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
+                          <span>{formatTimeAgo(h.createdAt)}</span>
+                          <span className="opacity-30">•</span>
+                          <span>{Math.round(h.seconds)}s</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            className="flex items-center justify-center rounded-md border border-white/10 bg-white/5 p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Load into transcript"
+                            onClick={() => {
+                              setTranscript(h.text);
+                              requestAnimationFrame(() => transcriptRef.current?.focus());
+                            }}
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="17 8 12 3 7 8" />
+                              <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                          </button>
+                          <button
+                            className="flex items-center justify-center rounded-md border border-white/10 bg-white/5 p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                            title="Copy to clipboard"
+                            onClick={() => navigator.clipboard.writeText(h.text)}
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                          <button
+                            className="flex items-center justify-center rounded-md border border-rose-500/20 bg-rose-500/5 p-1.5 text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Delete entry"
+                            onClick={() => deleteHistoryItem(h.id)}
+                          >
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-slate-100 truncate">{truncateText(h.text, 10)}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button
-                          className="rounded-lg border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-200"
-                          onClick={() => {
-                            setTranscript(h.text);
-                            requestAnimationFrame(() => transcriptRef.current?.focus());
-                          }}
-                        >
-                          Load
-                        </button>
-                        <button
-                          className="rounded-lg border border-white/10 bg-transparent px-2 py-0.5 text-[11px] text-slate-300"
-                          onClick={() => navigator.clipboard.writeText(h.text)}
-                        >
-                          Copy
-                        </button>
-                        <button
-                          className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-200"
-                          onClick={() => deleteHistoryItem(h.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      <p className="text-[13px] text-slate-200 leading-relaxed line-clamp-2">{h.text}</p>
                     </div>
                   ))
                 )}
@@ -802,36 +722,52 @@ export default function Home() {
               ) : (
                 <div className="space-y-3">
                   {filteredHistory.map((h) => (
-                    <div key={h.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>{formatDate(h.createdAt)}</span>
-                        <span>{Math.round(h.seconds)}s</span>
+                    <div key={h.id} className="group relative rounded-xl border border-white/10 bg-white/5 p-4 transition-colors hover:bg-white/[0.07]">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+                          <span>{formatTimeAgo(h.createdAt)}</span>
+                          <span className="opacity-30">•</span>
+                          <span>{Math.round(h.seconds)}s</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                            onClick={() => {
+                              setTranscript(h.text);
+                              setHistoryModalOpen(false);
+                              requestAnimationFrame(() => transcriptRef.current?.focus());
+                            }}
+                          >
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="17 8 12 3 7 8" />
+                              <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            Load
+                          </button>
+                          <button
+                            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                            onClick={() => navigator.clipboard.writeText(h.text)}
+                          >
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            Copy
+                          </button>
+                          <button
+                            className="flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-1.5 text-xs font-medium text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            onClick={() => deleteHistoryItem(h.id)}
+                          >
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                      <p className="mt-2 text-sm text-slate-100 whitespace-pre-wrap">{h.text}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200"
-                          onClick={() => {
-                            setTranscript(h.text);
-                            setHistoryModalOpen(false);
-                            requestAnimationFrame(() => transcriptRef.current?.focus());
-                          }}
-                        >
-                          Load
-                        </button>
-                        <button
-                          className="rounded-lg border border-white/10 bg-transparent px-3 py-1 text-xs text-slate-300"
-                          onClick={() => navigator.clipboard.writeText(h.text)}
-                        >
-                          Copy
-                        </button>
-                        <button
-                          className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-200"
-                          onClick={() => deleteHistoryItem(h.id)}
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      <p className="text-sm text-slate-100 whitespace-pre-wrap leading-relaxed">{h.text}</p>
                     </div>
                   ))}
                 </div>

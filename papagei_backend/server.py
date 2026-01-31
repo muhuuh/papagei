@@ -42,6 +42,7 @@ _model_state: Dict[str, Any] = {
     "phase_index": 0,
     "message": "Starting backend...",
     "started_at": time.time(),
+    "events": [],
     "ready_at": None,
     "error": None,
     "device": None,
@@ -70,9 +71,22 @@ def _set_model_state(
                 _model_state["phase_index"] = _PHASES.index(phase)
             except ValueError:
                 _model_state["phase_index"] = 0
+            _append_event(phase, message)
         if state == "ready":
             _model_state["ready_at"] = time.time()
 
+def _append_event(phase: str, message: Optional[str]) -> None:
+    events = _model_state["events"]
+    now = time.time()
+    if events and events[-1].get("phase") == phase:
+        return
+    events.append(
+        {
+            "phase": phase,
+            "message": message or "",
+            "at": now,
+        }
+    )
 
 # ---- Model loading (background) ----
 def _restore_model():
@@ -242,6 +256,9 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event():
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    with _model_lock:
+        _model_state["events"] = []
+        _append_event("starting", "Starting backend...")
     thread = threading.Thread(target=_load_model_worker, daemon=True)
     thread.start()
 
@@ -257,6 +274,7 @@ def health():
         device = _model_state["device"]
         started_at = _model_state["started_at"]
         ready_at = _model_state["ready_at"]
+        events = list(_model_state.get("events", []))
 
     is_ready = asr_model is not None and state == "ready"
     if not is_ready and state != "error":
@@ -280,6 +298,7 @@ def health():
         "progress": phase_index / max(len(_PHASES) - 1, 1),
         "message": message,
         "error": error,
+        "events": events,
         "recording": recorder.recording,
         "model": LOCAL_NEMO_PATH or MODEL_NAME,
         "device": device,

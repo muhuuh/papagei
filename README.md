@@ -32,6 +32,12 @@ npm run dev:backend
 
 Note: the backend intentionally runs **without** `--reload` to avoid model reload loops on Windows. If you really need reload, use `npm run dev:backend:reload` (slower and less stable).
 
+If you see `WinError 10048` (port 8000 already in use), stop the old backend first:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
+```
+
 Health check: http://127.0.0.1:8000/health
 
 ### 2) Frontend (Next.js)
@@ -50,6 +56,10 @@ Open: http://localhost:3000
 ```powershell
 npm run dev:all
 ```
+
+`dev:all` will:
+- start both backend + frontend if the backend is not running, or
+- start only the frontend if a backend is already running on port 8000.
 
 If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running on `http://127.0.0.1:8000`.
 
