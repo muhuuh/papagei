@@ -6,6 +6,8 @@
 BACKEND_URL := "http://127.0.0.1:8000"
 HOTKEY_START := "^#Space"
 HOTKEY_STOP := "^#S"
+AUTO_PASTE := true
+AUTO_PASTE_DELAY_MS := 80
 
 global requestInFlight := false
 global recordingState := false
@@ -54,7 +56,13 @@ StopRecording(*) {
     if text != "" {
       A_Clipboard := text
       ClipWait(0.5)
-      ShowStatus("Transcript copied")
+      if AUTO_PASTE {
+        Sleep(AUTO_PASTE_DELAY_MS)
+        Send("^v")
+        ShowStatus("Transcript pasted")
+      } else {
+        ShowStatus("Transcript copied")
+      }
     } else {
       ShowStatus("No transcript captured")
     }
