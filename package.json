@@ -9,7 +9,8 @@
     "lint": "next lint",
     "dev:backend": "python -m uvicorn papagei_backend.server:app --host 127.0.0.1 --port 8000",
     "dev:backend:reload": "python -m uvicorn papagei_backend.server:app --host 127.0.0.1 --port 8000 --reload",
-    "dev:all": "node scripts/dev-all.mjs"
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:all:hotkeys": "node scripts/dev-all-hotkeys.mjs"
   },
   "dependencies": {
     "next": "^15.1.6",

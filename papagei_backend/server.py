@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, List
 import numpy as np
 import sounddevice as sd
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import torch
@@ -323,12 +324,14 @@ def start():
 
 
 @app.post("/stop")
-def stop():
+def stop(plain: bool = False):
     try:
         audio = recorder.stop()
         secs = recorder.seconds()
 
         if audio.size == 0:
+            if plain:
+                return PlainTextResponse("")
             return {"text": "", "seconds": secs}
 
         if asr_model is None:
@@ -347,6 +350,8 @@ def stop():
         }
         _append_history(item)
 
+        if plain:
+            return PlainTextResponse(text)
         return {"text": text, "seconds": secs, "item": item}
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))

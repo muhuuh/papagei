@@ -1,15 +1,34 @@
 # Papagei setup checklist (Windows)
 
 1) Create and activate Python venv (or reuse your working NeMo env)
-2) Install backend deps: `pip install -r papagei_backend/requirements.txt`
-3) Start backend: `npm run dev:backend`
-4) Install Node deps: `npm install`
-5) Start UI: `npm run dev`
-6) Use the UI: Start -> speak -> Stop -> copy transcript
+   - `python -m venv .venv`
+   - `.\.venv\Scripts\Activate.ps1`
+2) Install backend deps:
+   - `pip install -r papagei_backend/requirements.txt`
+3) Start backend:
+   - `npm run dev:backend`
+4) Install Node deps:
+   - `npm install`
+5) Start UI:
+   - `npm run dev`
+6) Use the UI: Start -> speak -> Stop -> paste transcript
+
+Optional (global hotkeys on Windows):
+7) Install AutoHotkey v2 from:
+   - `autohotkey.com`
+8) Run the helper script:
+   - `.\scripts\papagei-hotkeys.ahk`
+9) Default hotkeys:
+   - Start: Ctrl + Win + Space
+   - Stop:  Ctrl + Win + S
+
+Optional (one-command start):
+10) Run everything (backend + UI + hotkeys) at once:
+    - `npm run dev:all:hotkeys`
 
 If you get CORS errors, ensure:
-- Frontend: http://localhost:3000
-- Backend:  http://127.0.0.1:8000
+- Frontend: `http://localhost:3000`
+- Backend:  `http://127.0.0.1:8000`
 
 If the UI says "Backend: OFFLINE", run `npm run dev:backend` in a separate terminal (or `npm run dev:all`).
 

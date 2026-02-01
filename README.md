@@ -9,7 +9,7 @@ A small local app that wraps your NeMo/Parakeet transcription workflow with a st
 
 The original script ended after a single recording. This app keeps the backend process alive and exposes Start/Stop endpoints, so the UI can trigger many recordings in one session. It also offers a practical workaround for Windows by sending NumPy audio arrays directly to NeMo (bypassing the Lhotse file-path dataloader, which can fail on some Windows + PyTorch combinations).
 
-## Setup
+## Setup (Windows)
 
 ### 1) Backend (FastAPI)
 
@@ -38,7 +38,7 @@ If you see `WinError 10048` (port 8000 already in use), stop the old backend fir
 Get-NetTCPConnection -LocalPort 8000 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
 ```
 
-Health check: http://127.0.0.1:8000/health
+Health check (optional): `http://127.0.0.1:8000/health`
 
 ### 2) Frontend (Next.js)
 
@@ -49,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Open: http://localhost:3000
+Open: `http://localhost:3000`
 
 ### 3) Run both (recommended)
 
@@ -63,6 +63,17 @@ npm run dev:all
 
 If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running on `http://127.0.0.1:8000`.
 
+### 4) Run everything + hotkeys in one command (optional)
+
+```powershell
+npm run dev:all:hotkeys
+```
+
+This starts:
+- Backend (if not already running)
+- Frontend
+- AutoHotkey helper (for global hotkeys)
+
 ## Usage
 
 - Click Start to begin recording.
@@ -71,6 +82,56 @@ If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running o
 - Enable Auto insert to inject text into the currently focused input inside the app.
 
 Browser security prevents automatic typing into other desktop apps. The Auto copy toggle is the simplest way to paste into any other window.
+
+## Global hotkeys (Windows)
+
+If you want to start/stop recording without focusing the web UI, use the AutoHotkey helper.
+
+### Install AutoHotkey v2
+
+1) Download AutoHotkey v2 from the official site:
+
+```text
+autohotkey.com
+```
+
+2) Run the installer and choose the **v2** installation (default options are fine).
+
+### Run the hotkey helper
+
+1) Ensure the backend is running (`npm run dev:backend`, `npm run dev:all`, or `npm run dev:all:hotkeys`).
+2) Run the helper script (either):
+
+```powershell
+.\scripts\papagei-hotkeys.ahk
+```
+
+Or double-click `scripts\papagei-hotkeys.ahk` in File Explorer.
+
+You should see a small tooltip saying "Papagei hotkeys active".
+
+### Default hotkeys
+
+- Start recording: Ctrl + Win + Space
+- Stop recording:  Ctrl + Win + S
+
+Important: Windows/AutoHotkey cannot register a hotkey made of only modifiers (e.g. Ctrl+Win by itself). You must include a non-modifier key like Space or S.
+
+### Customize hotkeys
+
+Edit the top of `scripts\papagei-hotkeys.ahk`:
+
+```ahk
+BACKEND_URL := "http://127.0.0.1:8000"
+HOTKEY_START := "^#Space"
+HOTKEY_STOP := "^#S"
+```
+
+### Troubleshooting
+
+- If hotkeys do nothing, confirm the backend is running on `http://127.0.0.1:8000`.
+- If hotkeys work sometimes, run the helper as Administrator (only needed when targeting apps running as admin).
+- Close any other app that already uses the same hotkeys.
 
 ## History storage
 
