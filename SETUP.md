@@ -23,8 +23,7 @@ Optional (global hotkeys on Windows):
 8) Run the helper script:
    - `.\scripts\papagei-hotkeys.ahk`
 9) Default hotkeys:
-   - Start: Ctrl + Win + Space
-   - Stop:  Ctrl + Win + S
+   - Toggle start/stop: Ctrl + Shift + Space
 
 Optional (one-command start):
 10) Run everything (backend + UI + hotkeys) at once:

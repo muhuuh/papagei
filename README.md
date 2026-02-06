@@ -124,8 +124,7 @@ You should see a small tooltip saying "Papagei hotkeys active".
 
 ### Default hotkeys
 
-- Start recording: Ctrl + Win + Space
-- Stop recording:  Ctrl + Win + S
+- Toggle start/stop recording: Ctrl + Shift + Space
 
 Important: Windows/AutoHotkey cannot register a hotkey made of only modifiers (e.g. Ctrl+Win by itself). You must include a non-modifier key like Space or S.
 
@@ -134,9 +133,11 @@ Important: Windows/AutoHotkey cannot register a hotkey made of only modifiers (e
 Edit the top of `scripts\papagei-hotkeys.ahk`:
 
 ```ahk
-BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL", "http://127.0.0.1:4380")
-HOTKEY_START := "^#Space"
-HOTKEY_STOP := "^#S"
+BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL")
+if (BACKEND_URL = "") {
+  BACKEND_URL := "http://127.0.0.1:4380"
+}
+HOTKEY_TOGGLE := "^+Space"
 ```
 
 ### Troubleshooting

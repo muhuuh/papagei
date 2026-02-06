@@ -3,24 +3,34 @@
 #Warn
 #MaxThreadsPerHotkey 1
 
-BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL", "http://127.0.0.1:4380")
-HOTKEY_START := "^#Space"
-HOTKEY_STOP := "^#S"
+BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL")
+if (BACKEND_URL = "") {
+  BACKEND_URL := "http://127.0.0.1:4380"
+}
+HOTKEY_TOGGLE := "^+Space"
 AUTO_PASTE := true
 AUTO_PASTE_DELAY_MS := 80
 
 global requestInFlight := false
 global recordingState := false
 
-Hotkey(HOTKEY_START, StartRecording)
-Hotkey(HOTKEY_STOP, StopRecording)
+Hotkey(HOTKEY_TOGGLE, ToggleRecording)
 
 ShowStatus("Papagei hotkeys active")
 
-StartRecording(*) {
-  global requestInFlight
+ToggleRecording(*) {
   global recordingState
   DebounceHotkey()
+  if recordingState {
+    StopRecording()
+  } else {
+    StartRecording(true)
+  }
+}
+
+StartRecording(fromToggle := false, *) {
+  global requestInFlight
+  global recordingState
   if requestInFlight {
     return
   }
@@ -34,6 +44,10 @@ StartRecording(*) {
   }
   if result.status = 409 {
     recordingState := true
+    if fromToggle {
+      StopRecording()
+      return
+    }
     ShowStatus("Already recording")
     return
   }
@@ -43,7 +57,6 @@ StartRecording(*) {
 StopRecording(*) {
   global requestInFlight
   global recordingState
-  DebounceHotkey()
   if requestInFlight {
     return
   }
