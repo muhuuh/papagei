@@ -241,13 +241,20 @@ recorder = Recorder()
 # ---- FastAPI app ----
 app = FastAPI(title="papagei-backend", version="0.1.0")
 
+FRONTEND_PORT = os.getenv("PAPAGEI_FRONTEND_PORT", "4310")
+EXTRA_ORIGINS = os.getenv("PAPAGEI_FRONTEND_ORIGINS", "")
+
+origins = [
+    f"http://localhost:{FRONTEND_PORT}",
+    f"http://127.0.0.1:{FRONTEND_PORT}",
+]
+if EXTRA_ORIGINS:
+    origins.extend([o.strip() for o in EXTRA_ORIGINS.split(",") if o.strip()])
+
 # Local dev: allow Next.js dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

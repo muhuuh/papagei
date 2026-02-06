@@ -49,7 +49,10 @@ npm install
 npm run dev
 ```
 
-Open: `http://localhost:3000`
+Open: `http://localhost:4310`
+
+Note: the frontend runs on port 4310 by default. If you change the port in `package.json`, set
+`PAPAGEI_FRONTEND_PORT` for the backend CORS allowlist (or update `PAPAGEI_FRONTEND_ORIGINS`).
 
 ### 3) Run both (recommended)
 

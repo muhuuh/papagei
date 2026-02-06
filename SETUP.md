@@ -12,6 +12,8 @@
 5) Start UI:
    - `npm run dev`
 6) Use the UI: Start -> speak -> Stop -> paste transcript
+   - Default UI URL: `http://localhost:4310`
+   - If you change the frontend port, set `PAPAGEI_FRONTEND_PORT` for the backend.
 
 Optional (global hotkeys on Windows):
 7) Install AutoHotkey v2 from:
@@ -27,7 +29,7 @@ Optional (one-command start):
     - `npm run dev:all:hotkeys`
 
 If you get CORS errors, ensure:
-- Frontend: `http://localhost:3000`
+- Frontend: `http://localhost:4310`
 - Backend:  `http://127.0.0.1:8000`
 
 If the UI says "Backend: OFFLINE", run `npm run dev:backend` in a separate terminal (or `npm run dev:all`).
