@@ -5,9 +5,22 @@ import https from "https";
 import path from "path";
 import { URL } from "url";
 
-const backendBase = process.env.NEXT_PUBLIC_PAPAGEI_BACKEND_URL || "http://127.0.0.1:8000";
+const configuredBackendUrl = process.env.NEXT_PUBLIC_PAPAGEI_BACKEND_URL;
+const backendBase = configuredBackendUrl || `http://127.0.0.1:${process.env.PAPAGEI_BACKEND_PORT || "4380"}`;
 const healthUrl = new URL("/health", backendBase);
 const hotkeyScript = path.resolve("scripts", "papagei-hotkeys.ahk");
+const backendHost = process.env.PAPAGEI_BACKEND_HOST || healthUrl.hostname || "127.0.0.1";
+const backendPort =
+  process.env.PAPAGEI_BACKEND_PORT ||
+  healthUrl.port ||
+  (healthUrl.protocol === "https:" ? "443" : "80");
+const childEnv = {
+  ...process.env,
+  PAPAGEI_BACKEND_HOST: backendHost,
+  PAPAGEI_BACKEND_PORT: backendPort,
+  PAPAGEI_BACKEND_URL: backendBase,
+  NEXT_PUBLIC_PAPAGEI_BACKEND_URL: backendBase,
+};
 
 function checkHealth(timeoutMs = 800) {
   return new Promise((resolve) => {
@@ -42,10 +55,11 @@ function checkHealth(timeoutMs = 800) {
   });
 }
 
-function runCommand(command) {
+function runCommand(command, env = process.env) {
   const child = spawn(command, {
     stdio: "inherit",
     shell: true,
+    env,
   });
 
   const shutdown = () => {
@@ -73,7 +87,7 @@ function startHotkeys() {
     return;
   }
   const command = `cmd /c start "" "${hotkeyScript}"`;
-  spawn(command, { stdio: "inherit", shell: true });
+  spawn(command, { stdio: "inherit", shell: true, env: childEnv });
   console.log("[dev:all:hotkeys] Launched hotkeys helper.");
 }
 
@@ -83,9 +97,9 @@ function startHotkeys() {
   const health = await checkHealth();
   if (health.ok) {
     console.log(`[dev:all:hotkeys] Backend already running at ${backendBase}. Starting frontend only.`);
-    runCommand("npm run dev");
+    runCommand("npm run dev", childEnv);
     return;
   }
 
-  runCommand("npx concurrently -k -n BACKEND,FRONTEND -c auto \"npm run dev:backend\" \"npm run dev\"");
+  runCommand("npx concurrently -k -n BACKEND,FRONTEND -c auto \"npm run dev:backend\" \"npm run dev\"", childEnv);
 })();

@@ -12,7 +12,7 @@ type TranscriptItem = {
 type Status = "idle" | "recording" | "transcribing" | "error";
 type BackendState = "offline" | "loading" | "ready";
 
-const BACKEND = process.env.NEXT_PUBLIC_PAPAGEI_BACKEND_URL ?? "http://127.0.0.1:8000";
+const BACKEND = process.env.NEXT_PUBLIC_PAPAGEI_BACKEND_URL ?? "http://127.0.0.1:4380";
 const HISTORY_PAGE = 5;
 
 type ToggleProps = {

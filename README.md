@@ -30,15 +30,23 @@ Run the backend:
 npm run dev:backend
 ```
 
-Note: the backend intentionally runs **without** `--reload` to avoid model reload loops on Windows. If you really need reload, use `npm run dev:backend:reload` (slower and less stable).
-
-If you see `WinError 10048` (port 8000 already in use), stop the old backend first:
+Default backend URL: `http://127.0.0.1:4380`  
+Optional override:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
+$env:PAPAGEI_BACKEND_PORT="4500"
+npm run dev:backend
 ```
 
-Health check (optional): `http://127.0.0.1:8000/health`
+Note: the backend intentionally runs **without** `--reload` to avoid model reload loops on Windows. If you really need reload, use `npm run dev:backend:reload` (slower and less stable).
+
+If you see `WinError 10048` (port 4380 already in use), stop the old backend first:
+
+```powershell
+Get-NetTCPConnection -LocalPort 4380 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
+```
+
+Health check (optional): `http://127.0.0.1:4380/health`
 
 ### 2) Frontend (Next.js)
 
@@ -62,9 +70,10 @@ npm run dev:all
 
 `dev:all` will:
 - start both backend + frontend if the backend is not running, or
-- start only the frontend if a backend is already running on port 8000.
+- start only the frontend if a backend is already running at `NEXT_PUBLIC_PAPAGEI_BACKEND_URL`
+  (default: `http://127.0.0.1:4380`).
 
-If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running on `http://127.0.0.1:8000`.
+If the UI shows "Backend: OFFLINE", it means the FastAPI server is not running on `http://127.0.0.1:4380`.
 
 ### 4) Run everything + hotkeys in one command (optional)
 
@@ -125,14 +134,14 @@ Important: Windows/AutoHotkey cannot register a hotkey made of only modifiers (e
 Edit the top of `scripts\papagei-hotkeys.ahk`:
 
 ```ahk
-BACKEND_URL := "http://127.0.0.1:8000"
+BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL", "http://127.0.0.1:4380")
 HOTKEY_START := "^#Space"
 HOTKEY_STOP := "^#S"
 ```
 
 ### Troubleshooting
 
-- If hotkeys do nothing, confirm the backend is running on `http://127.0.0.1:8000`.
+- If hotkeys do nothing, confirm the backend is running on `http://127.0.0.1:4380`.
 - If hotkeys work sometimes, run the helper as Administrator (only needed when targeting apps running as admin).
 - Close any other app that already uses the same hotkeys.
 
@@ -152,6 +161,8 @@ Optional environment variables:
 $env:PAPAGEI_MODEL_NAME="nvidia/parakeet-tdt-0.6b-v3"
 $env:PAPAGEI_LOCAL_NEMO_PATH="C:\path\to\parakeet-tdt-0.6b-v3.nemo"
 $env:PAPAGEI_DEVICE="Microphone (Realtek...)"
+$env:PAPAGEI_BACKEND_PORT="4380"
+$env:NEXT_PUBLIC_PAPAGEI_BACKEND_URL="http://127.0.0.1:4380"
 ```
 
 If PAPAGEI_LOCAL_NEMO_PATH is set, the backend loads from disk.

@@ -3,7 +3,7 @@
 #Warn
 #MaxThreadsPerHotkey 1
 
-BACKEND_URL := "http://127.0.0.1:8000"
+BACKEND_URL := EnvGet("PAPAGEI_BACKEND_URL", "http://127.0.0.1:4380")
 HOTKEY_START := "^#Space"
 HOTKEY_STOP := "^#S"
 AUTO_PASTE := true

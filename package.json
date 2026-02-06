@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start -p 4310",
     "lint": "next lint",
-    "dev:backend": "python -m uvicorn papagei_backend.server:app --host 127.0.0.1 --port 8000",
-    "dev:backend:reload": "python -m uvicorn papagei_backend.server:app --host 127.0.0.1 --port 8000 --reload",
+    "dev:backend": "node scripts/dev-backend.mjs",
+    "dev:backend:reload": "node scripts/dev-backend.mjs --reload",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:all:hotkeys": "node scripts/dev-all-hotkeys.mjs"
   },

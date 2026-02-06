@@ -13,6 +13,8 @@
    - `npm run dev`
 6) Use the UI: Start -> speak -> Stop -> paste transcript
    - Default UI URL: `http://localhost:4310`
+   - Default backend URL: `http://127.0.0.1:4380`
+   - Override backend port with: `$env:PAPAGEI_BACKEND_PORT=\"4500\"`
    - If you change the frontend port, set `PAPAGEI_FRONTEND_PORT` for the backend.
 
 Optional (global hotkeys on Windows):
@@ -30,14 +32,14 @@ Optional (one-command start):
 
 If you get CORS errors, ensure:
 - Frontend: `http://localhost:4310`
-- Backend:  `http://127.0.0.1:8000`
+- Backend:  `http://127.0.0.1:4380`
 
 If the UI says "Backend: OFFLINE", run `npm run dev:backend` in a separate terminal (or `npm run dev:all`).
 
 Note: the backend runs without reload to avoid model reload loops on Windows. Use `npm run dev:backend:reload` only if needed.
 
-If you see `WinError 10048` (port 8000 already in use), stop the old backend first:
+If you see `WinError 10048` (port 4380 already in use), stop the old backend first:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
+Get-NetTCPConnection -LocalPort 4380 | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }
 ```
