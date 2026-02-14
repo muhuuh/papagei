@@ -160,6 +160,10 @@ You can also tune:
 
 Transcripts are saved on disk in `history/history.json` by the backend. The UI loads the most recent items first and lets you fetch older entries.
 
+History retention is configurable in the app under `History -> Settings`:
+- `history/settings.json` stores `historyRetentionDays` (default `60`).
+- On backend startup, `scripts/prune-history.mjs` removes entries older than the configured number of days.
+
 ## Model configuration
 
 Defaults to:

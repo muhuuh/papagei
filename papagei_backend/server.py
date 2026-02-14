@@ -12,6 +12,7 @@ import sounddevice as sd
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 import torch
 import nemo.collections.asr as nemo_asr
@@ -28,9 +29,12 @@ DEVICE_NAME = os.getenv("PAPAGEI_DEVICE")  # optional, e.g. "Microphone (Realtek
 BASE_DIR = Path(__file__).resolve().parent.parent
 HISTORY_DIR = BASE_DIR / "history"
 HISTORY_FILE = HISTORY_DIR / "history.json"
+SETTINGS_FILE = HISTORY_DIR / "settings.json"
 _history_lock = threading.Lock()
+_settings_lock = threading.Lock()
 _event_subscribers_lock = threading.Lock()
 _event_subscribers: List[queue.Queue] = []
+DEFAULT_HISTORY_RETENTION_DAYS = 60
 
 _model_lock = threading.Lock()
 _PHASES = [
@@ -144,6 +148,51 @@ def _load_history() -> List[Dict[str, Any]]:
             return []
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def _load_settings() -> Dict[str, Any]:
+    if not SETTINGS_FILE.exists():
+        return {"historyRetentionDays": DEFAULT_HISTORY_RETENTION_DAYS}
+    try:
+        with SETTINGS_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {"historyRetentionDays": DEFAULT_HISTORY_RETENTION_DAYS}
+
+    if not isinstance(data, dict):
+        return {"historyRetentionDays": DEFAULT_HISTORY_RETENTION_DAYS}
+
+    days = data.get("historyRetentionDays", DEFAULT_HISTORY_RETENTION_DAYS)
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = DEFAULT_HISTORY_RETENTION_DAYS
+    if days < 1:
+        days = DEFAULT_HISTORY_RETENTION_DAYS
+
+    return {"historyRetentionDays": days}
+
+
+def _write_settings(settings: Dict[str, Any]) -> None:
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = SETTINGS_FILE.with_suffix(".json.tmp")
+    with temp_path.open("w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+    temp_path.replace(SETTINGS_FILE)
+
+
+def _get_history_retention_days() -> int:
+    with _settings_lock:
+        settings = _load_settings()
+    return int(settings.get("historyRetentionDays", DEFAULT_HISTORY_RETENTION_DAYS))
+
+
+def _set_history_retention_days(days: int) -> int:
+    with _settings_lock:
+        settings = _load_settings()
+        settings["historyRetentionDays"] = int(days)
+        _write_settings(settings)
+    return int(days)
 
 
 def _write_history(items: List[Dict[str, Any]]) -> None:
@@ -265,6 +314,10 @@ recorder = Recorder()
 
 # ---- FastAPI app ----
 app = FastAPI(title="papagei-backend", version="0.1.0")
+
+
+class HistoryRetentionUpdate(BaseModel):
+    days: int
 
 FRONTEND_PORT = os.getenv("PAPAGEI_FRONTEND_PORT", "4310")
 EXTRA_ORIGINS = os.getenv("PAPAGEI_FRONTEND_ORIGINS", "")
@@ -440,6 +493,20 @@ def events():
         "X-Accel-Buffering": "no",
     }
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
+
+
+@app.get("/settings/history-retention")
+def get_history_retention():
+    return {"days": _get_history_retention_days()}
+
+
+@app.put("/settings/history-retention")
+def set_history_retention(payload: HistoryRetentionUpdate):
+    days = int(payload.days)
+    if days < 1 or days > 3650:
+        raise HTTPException(status_code=422, detail="Days must be between 1 and 3650.")
+    saved_days = _set_history_retention_days(days)
+    return {"ok": True, "days": saved_days}
 
 
 @app.get("/history/all")

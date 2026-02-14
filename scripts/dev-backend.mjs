@@ -1,8 +1,10 @@
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
+import path from "path";
 
 const backendHost = process.env.PAPAGEI_BACKEND_HOST || "127.0.0.1";
 const backendPort = process.env.PAPAGEI_BACKEND_PORT || "4380";
 const useReload = process.argv.includes("--reload");
+const pruneScript = path.resolve("scripts", "prune-history.mjs");
 
 const args = [
   "-m",
@@ -16,6 +18,13 @@ const args = [
 
 if (useReload) {
   args.push("--reload");
+}
+
+const prune = spawnSync(process.execPath, [pruneScript], {
+  stdio: "inherit",
+});
+if (prune.status !== 0) {
+  console.warn("[dev:backend] History pruning failed. Continuing backend startup.");
 }
 
 console.log(`[dev:backend] Starting backend at http://${backendHost}:${backendPort}${useReload ? " (reload)" : ""}`);
