@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type TranscriptItem = {
   id: string;
@@ -58,8 +58,6 @@ export default function Home() {
   const [transcript, setTranscript] = useState<string>("");
   const [history, setHistory] = useState<TranscriptItem[]>([]);
   const [historyTotal, setHistoryTotal] = useState<number>(0);
-  const [historyOffset, setHistoryOffset] = useState<number>(0);
-  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyAll, setHistoryAll] = useState<TranscriptItem[]>([]);
   const [historyAllLoading, setHistoryAllLoading] = useState(false);
@@ -75,6 +73,10 @@ export default function Home() {
 
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
+  const historyRefreshInFlightRef = useRef(false);
+  const historyAllRefreshInFlightRef = useRef(false);
+  const historyModalOpenRef = useRef(false);
+  const historyAllLoadedRef = useRef(false);
 
   const isRecording = status === "recording";
   const isBusy = status === "recording" || status === "transcribing";
@@ -165,34 +167,28 @@ export default function Home() {
     return () => document.removeEventListener("focusin", onFocusIn);
   }, []);
 
-  async function loadHistory(reset = false) {
-    if (historyLoading) return;
-    setHistoryLoading(true);
+  const loadHistory = useCallback(async () => {
+    if (historyRefreshInFlightRef.current) return;
+    historyRefreshInFlightRef.current = true;
     try {
-      const offset = reset ? 0 : historyOffset;
-      const r = await fetch(`${BACKEND}/history?limit=${HISTORY_PAGE}&offset=${offset}`, {
+      const r = await fetch(`${BACKEND}/history?limit=${HISTORY_PAGE}&offset=0`, {
         cache: "no-store",
       });
       if (!r.ok) throw new Error("Failed to load history");
       const data = await r.json();
       const items = (data.items as TranscriptItem[]) ?? [];
       setHistoryTotal(data.total ?? 0);
-      if (reset) {
-        setHistory(items);
-        setHistoryOffset(items.length);
-      } else {
-        setHistory((h) => [...h, ...items]);
-        setHistoryOffset((prev) => prev + items.length);
-      }
+      setHistory(items);
     } catch {
       // ignore history fetch errors
     } finally {
-      setHistoryLoading(false);
+      historyRefreshInFlightRef.current = false;
     }
-  }
+  }, []);
 
-  async function loadAllHistory() {
-    if (historyAllLoading) return;
+  const loadAllHistory = useCallback(async () => {
+    if (historyAllRefreshInFlightRef.current) return;
+    historyAllRefreshInFlightRef.current = true;
     setHistoryAllLoading(true);
     setHistoryAllError(null);
     try {
@@ -207,8 +203,9 @@ export default function Home() {
       setHistoryAllError(e?.message ?? "Failed to load history");
     } finally {
       setHistoryAllLoading(false);
+      historyAllRefreshInFlightRef.current = false;
     }
-  }
+  }, []);
 
   async function deleteHistoryItem(itemId: string) {
     try {
@@ -222,8 +219,7 @@ export default function Home() {
         setHistoryAll((items) => items.filter((item) => item.id !== itemId));
       }
       setHistoryTotal((prev) => Math.max(prev - 1, 0));
-      setHistoryOffset((prev) => Math.max(prev - 1, 0));
-      loadHistory(true);
+      loadHistory();
     } catch (e: any) {
       setHistoryAllError(e?.message ?? "Delete failed");
     }
@@ -231,9 +227,45 @@ export default function Home() {
 
   useEffect(() => {
     if (backendOk) {
-      loadHistory(true);
+      loadHistory();
     }
-  }, [backendOk]);
+  }, [backendOk, loadHistory]);
+
+  useEffect(() => {
+    historyModalOpenRef.current = historyModalOpen;
+  }, [historyModalOpen]);
+
+  useEffect(() => {
+    historyAllLoadedRef.current = historyAllLoaded;
+  }, [historyAllLoaded]);
+
+  useEffect(() => {
+    if (!backendOk || backendState !== "ready") {
+      return;
+    }
+
+    const source = new EventSource(`${BACKEND}/events`);
+    const refreshHistoryFromEvent = () => {
+      loadHistory();
+      if (historyModalOpenRef.current && historyAllLoadedRef.current) {
+        loadAllHistory();
+      }
+    };
+    const onConnected = () => refreshHistoryFromEvent();
+    const onHistoryAdded = () => refreshHistoryFromEvent();
+    const onHistoryDeleted = () => refreshHistoryFromEvent();
+
+    source.addEventListener("connected", onConnected);
+    source.addEventListener("history_added", onHistoryAdded);
+    source.addEventListener("history_deleted", onHistoryDeleted);
+
+    return () => {
+      source.removeEventListener("connected", onConnected);
+      source.removeEventListener("history_added", onHistoryAdded);
+      source.removeEventListener("history_deleted", onHistoryDeleted);
+      source.close();
+    };
+  }, [backendOk, backendState, loadAllHistory, loadHistory]);
 
   function isInsertable(target: HTMLElement) {
     return (
@@ -334,7 +366,6 @@ export default function Home() {
       const item = data.item as TranscriptItem | undefined;
       if (item) {
         setHistory((h) => [item, ...h].slice(0, HISTORY_PAGE));
-        setHistoryOffset((prev) => prev + 1);
         setHistoryTotal((prev) => prev + 1);
         if (historyAllLoaded) {
           setHistoryAll((items) => [item, ...items]);

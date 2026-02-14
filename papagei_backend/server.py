@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import threading
 import time
 import uuid
@@ -9,7 +10,7 @@ from typing import Optional, Dict, Any, List
 import numpy as np
 import sounddevice as sd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import torch
@@ -28,6 +29,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 HISTORY_DIR = BASE_DIR / "history"
 HISTORY_FILE = HISTORY_DIR / "history.json"
 _history_lock = threading.Lock()
+_event_subscribers_lock = threading.Lock()
+_event_subscribers: List[queue.Queue] = []
 
 _model_lock = threading.Lock()
 _PHASES = [
@@ -151,11 +154,32 @@ def _write_history(items: List[Dict[str, Any]]) -> None:
     temp_path.replace(HISTORY_FILE)
 
 
+def _format_sse(event_name: str, payload: Dict[str, Any]) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _publish_event(event_name: str, payload: Dict[str, Any]) -> None:
+    message = _format_sse(event_name, payload)
+    with _event_subscribers_lock:
+        subscribers = list(_event_subscribers)
+    for subscriber in subscribers:
+        try:
+            subscriber.put_nowait(message)
+        except queue.Full:
+            # Keep the latest event for slow consumers.
+            try:
+                subscriber.get_nowait()
+                subscriber.put_nowait(message)
+            except queue.Empty:
+                pass
+
+
 def _append_history(item: Dict[str, Any]) -> None:
     with _history_lock:
         items = _load_history()
         items.append(item)
         _write_history(items)
+    _publish_event("history_added", {"item": item})
 
 
 def _delete_history(item_id: str) -> bool:
@@ -165,6 +189,7 @@ def _delete_history(item_id: str) -> bool:
         if len(next_items) == len(items):
             return False
         _write_history(next_items)
+    _publish_event("history_deleted", {"itemId": item_id})
     return True
 
 
@@ -386,6 +411,35 @@ def history(limit: int = 10, offset: int = 0):
         "offset": offset,
         "items": slice_items,
     }
+
+
+@app.get("/events")
+def events():
+    def event_stream():
+        subscriber: queue.Queue = queue.Queue(maxsize=32)
+        with _event_subscribers_lock:
+            _event_subscribers.append(subscriber)
+        yield _format_sse("connected", {"ok": True, "at": time.time()})
+        try:
+            while True:
+                try:
+                    message = subscriber.get(timeout=25)
+                    yield message
+                except queue.Empty:
+                    yield _format_sse("ping", {"at": time.time()})
+        finally:
+            with _event_subscribers_lock:
+                try:
+                    _event_subscribers.remove(subscriber)
+                except ValueError:
+                    pass
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
 
 @app.get("/history/all")

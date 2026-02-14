@@ -10,6 +10,12 @@ if (BACKEND_URL = "") {
 HOTKEY_TOGGLE := "^+Space"
 AUTO_PASTE := true
 AUTO_PASTE_DELAY_MS := 80
+HTTP_RESOLVE_TIMEOUT_MS := EnvInt("PAPAGEI_HTTP_RESOLVE_TIMEOUT_MS", 2000)
+HTTP_CONNECT_TIMEOUT_MS := EnvInt("PAPAGEI_HTTP_CONNECT_TIMEOUT_MS", 2000)
+HTTP_SEND_TIMEOUT_MS := EnvInt("PAPAGEI_HTTP_SEND_TIMEOUT_MS", 5000)
+HTTP_RECEIVE_TIMEOUT_MS := EnvInt("PAPAGEI_HTTP_RECEIVE_TIMEOUT_MS", 10000)
+START_HTTP_RECEIVE_TIMEOUT_MS := EnvInt("PAPAGEI_START_HTTP_RECEIVE_TIMEOUT_MS", HTTP_RECEIVE_TIMEOUT_MS)
+STOP_HTTP_RECEIVE_TIMEOUT_MS := EnvInt("PAPAGEI_STOP_HTTP_RECEIVE_TIMEOUT_MS", 120000)
 
 global requestInFlight := false
 global recordingState := false
@@ -31,11 +37,12 @@ ToggleRecording(*) {
 StartRecording(fromToggle := false, *) {
   global requestInFlight
   global recordingState
+  global START_HTTP_RECEIVE_TIMEOUT_MS
   if requestInFlight {
     return
   }
   requestInFlight := true
-  result := HttpPost(BACKEND_URL "/start")
+  result := HttpPost(BACKEND_URL "/start", START_HTTP_RECEIVE_TIMEOUT_MS)
   requestInFlight := false
   if result.ok {
     recordingState := true
@@ -57,11 +64,12 @@ StartRecording(fromToggle := false, *) {
 StopRecording(*) {
   global requestInFlight
   global recordingState
+  global STOP_HTTP_RECEIVE_TIMEOUT_MS
   if requestInFlight {
     return
   }
   requestInFlight := true
-  result := HttpPost(BACKEND_URL "/stop?plain=1")
+  result := HttpPost(BACKEND_URL "/stop?plain=1", STOP_HTTP_RECEIVE_TIMEOUT_MS)
   requestInFlight := false
   if result.ok {
     text := Trim(result.body, " `t`r`n")
@@ -86,20 +94,97 @@ StopRecording(*) {
     ShowStatus("Not recording")
     return
   }
+  if result.status = 0 {
+    SyncRecordingState()
+    if recordingState {
+      ShowStatus("Stop request timed out while transcribing")
+      return
+    }
+    ShowStatus("Stop response timed out; transcript saved in history")
+    return
+  }
   ShowStatus(BuildError("Stop failed", result))
 }
 
-HttpPost(url) {
+HttpPost(url, receiveTimeoutMs := 0) {
+  global HTTP_RESOLVE_TIMEOUT_MS
+  global HTTP_CONNECT_TIMEOUT_MS
+  global HTTP_SEND_TIMEOUT_MS
+  global HTTP_RECEIVE_TIMEOUT_MS
+  if receiveTimeoutMs <= 0 {
+    receiveTimeoutMs := HTTP_RECEIVE_TIMEOUT_MS
+  }
   whr := ComObject("WinHttp.WinHttpRequest.5.1")
   whr.Open("POST", url, false)
   whr.SetRequestHeader("Content-Type", "application/json")
-  whr.SetTimeouts(2000, 2000, 5000, 5000)
+  whr.SetTimeouts(HTTP_RESOLVE_TIMEOUT_MS, HTTP_CONNECT_TIMEOUT_MS, HTTP_SEND_TIMEOUT_MS, receiveTimeoutMs)
   try {
     whr.Send("")
   } catch as e {
     return { ok: false, status: 0, body: "", error: e.Message }
   }
   return { ok: (whr.Status >= 200 && whr.Status < 300), status: whr.Status, body: whr.ResponseText, error: "" }
+}
+
+HttpGet(url, receiveTimeoutMs := 0) {
+  global HTTP_RESOLVE_TIMEOUT_MS
+  global HTTP_CONNECT_TIMEOUT_MS
+  global HTTP_SEND_TIMEOUT_MS
+  global HTTP_RECEIVE_TIMEOUT_MS
+  if receiveTimeoutMs <= 0 {
+    receiveTimeoutMs := HTTP_RECEIVE_TIMEOUT_MS
+  }
+  whr := ComObject("WinHttp.WinHttpRequest.5.1")
+  whr.Open("GET", url, false)
+  whr.SetTimeouts(HTTP_RESOLVE_TIMEOUT_MS, HTTP_CONNECT_TIMEOUT_MS, HTTP_SEND_TIMEOUT_MS, receiveTimeoutMs)
+  try {
+    whr.Send()
+  } catch as e {
+    return { ok: false, status: 0, body: "", error: e.Message }
+  }
+  return { ok: (whr.Status >= 200 && whr.Status < 300), status: whr.Status, body: whr.ResponseText, error: "" }
+}
+
+SyncRecordingState() {
+  global recordingState
+  state := QueryBackendRecordingState()
+  if state = "true" {
+    recordingState := true
+    return
+  }
+  if state = "false" {
+    recordingState := false
+  }
+}
+
+QueryBackendRecordingState() {
+  global BACKEND_URL
+  result := HttpGet(BACKEND_URL "/health")
+  if !result.ok {
+    return ""
+  }
+  if RegExMatch(result.body, '"recording"\s*:\s*true') {
+    return "true"
+  }
+  if RegExMatch(result.body, '"recording"\s*:\s*false') {
+    return "false"
+  }
+  return ""
+}
+
+EnvInt(name, fallback) {
+  raw := Trim(EnvGet(name))
+  if raw = "" {
+    return fallback
+  }
+  try value := Integer(raw)
+  catch {
+    return fallback
+  }
+  if value < 1 {
+    return fallback
+  }
+  return value
 }
 
 BuildError(prefix, result) {

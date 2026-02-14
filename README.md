@@ -145,6 +145,16 @@ HOTKEY_TOGGLE := "^+Space"
 - If hotkeys do nothing, confirm the backend is running on `http://127.0.0.1:4380`.
 - If hotkeys work sometimes, run the helper as Administrator (only needed when targeting apps running as admin).
 - Close any other app that already uses the same hotkeys.
+- If Stop sometimes times out on longer transcriptions, increase the hotkey HTTP receive timeout:
+
+```powershell
+$env:PAPAGEI_STOP_HTTP_RECEIVE_TIMEOUT_MS="180000"
+npm run dev:all:hotkeys
+```
+
+You can also tune:
+- `PAPAGEI_START_HTTP_RECEIVE_TIMEOUT_MS` (default `10000`)
+- `PAPAGEI_STOP_HTTP_RECEIVE_TIMEOUT_MS` (default `120000`)
 
 ## History storage
 
